@@ -16,6 +16,7 @@ data class LoginUiState(
     val username: String = "",
     val password: String = "",
     val isLoading: Boolean = false,
+    val loginProgress: Float = 0f, // 0f..1f，用于显示 1%..100%
     val loginSuccess: Boolean = false,
     val errorMessage: String? = null
 )
@@ -51,26 +52,43 @@ class LoginViewModel : ViewModel() {
 
     /**
      * 执行登录：在 viewModelScope 中调用挂起函数并更新 StateFlow 状态。
+     * 同时从 1% 到 100% 更新 [loginProgress]，用于按钮内线性进度条。
      */
     fun performLogin() {
         viewModelScope.launch {
             _uiState.update {
-                it.copy(isLoading = true, errorMessage = null, loginSuccess = false)
+                it.copy(
+                    isLoading = true,
+                    loginProgress = 0f,
+                    errorMessage = null,
+                    loginSuccess = false
+                )
+            }
+            // 与 login() 并行：约 1.5 秒内从 1% 递增到 100%
+            val progressJob = launch {
+                for (i in 1..100) {
+                    delay(15)
+                    _uiState.update { it.copy(loginProgress = i / 100f) }
+                }
             }
             runCatching {
                 login(_uiState.value.username, _uiState.value.password)
             }.onSuccess { success ->
+                progressJob.cancel()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        loginProgress = if (success) 1f else 0f,
                         loginSuccess = success,
                         errorMessage = if (success) null else "用户名或密码无效（模拟：密码至少 6 位）"
                     )
                 }
             }.onFailure { e ->
+                progressJob.cancel()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        loginProgress = 0f,
                         loginSuccess = false,
                         errorMessage = e.message ?: "登录失败"
                     )
